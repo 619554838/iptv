@@ -8665,7 +8665,7 @@ TestXtreamCodesLink()
                 | $JQ_FILE -r '.js.token') || true
             if [ -z "$token" ] 
             then
-                Println "$error 无法连接 $chnl_domain, 请重试!\n" && exit 1
+                Println "$error $chnl_domain $chnl_mac 错误, 请重试!\n" && exit 1
             fi
             access_token=$(curl -s -Lm 10 \
                 -H "User-Agent: $chnl_user_agent" \
@@ -8675,7 +8675,7 @@ TestXtreamCodesLink()
                 | $JQ_FILE -r '.js.token') || true
             if [ -z "$access_token" ] 
             then
-                Println "$error 无法连接 $chnl_domain, 请重试!\n" && exit 1
+                Println "$error $chnl_mac access_token 错误, 请重试!\n" && exit 1
             fi
             chnl_headers="Authorization: Bearer $access_token\r\n"
             printf -v chnl_headers_command '%b' "$chnl_headers"
@@ -8686,7 +8686,7 @@ TestXtreamCodesLink()
                 --cookie "$chnl_cookies" "$profile_url") || true
             if [ -z "$profile" ] 
             then
-                Println "$error 无法连接 $chnl_domain, 请重试!\n" && exit 1
+                Println "$error $chnl_mac profile 错误, 请重试!\n" && exit 1
             fi
 
             if [[ $($JQ_FILE -r '.js.id' <<< "$profile") == null ]] 
@@ -11614,111 +11614,92 @@ ScheduleAmlh()
     printf -v today '%(%Y-%-m-%-d)T' -1
     timestamp=$(date -d $today +%s)
 
-    TODAY_SCHEDULE_LINK="http://wap.lotustv.cc/wap.php/Sub/program/d/$timestamp"
-    YESTERDAY_SCHEDULE_LINK="http://wap.lotustv.cc/wap.php/Sub/program/d/$((timestamp-86400))"
+    SCHEDULE_LINK="http://www.lotustv.cc/index.php/index/getdetail.html"
 
     if [ ! -s "$SCHEDULE_JSON" ] 
     then
         printf '{"%s":[]}' "amlh" > "$SCHEDULE_JSON"
     fi
 
-    found=0
     schedule=""
-    replace=""
 
-    while IFS= read -r line
-    do
-        if [[ $line == *"program_list"* ]] 
-        then
-            found=1
-        elif [ "$found" -eq 1 ] && [[ $line == *"<li>"* ]] 
-        then
-            line=${line#*<em>}
-            time=${line%%<\/em>*}
-            while [ -n "$time" ] 
-            do
-                time=${time:0:5}
-                line=${line#*<span>}
-                if [ "${flag:-0}" -gt 0 ] && [ "${time:0:1}" -eq 0 ]
+    line=$(curl -s -Lm 10 -H "User-Agent: $user_agent" --data "d=$((timestamp-86400))" "$SCHEDULE_LINK") || true
+
+    if [[ $line == *"<li>"* ]] 
+    then
+        line=${line#*<em>}
+        time=${line%%<*}
+        while [ -n "$time" ] 
+        do
+            time=${time:0:5}
+            line=${line#*<span>}
+            if [ "${flag:-0}" -gt 0 ] && [ "${time:0:1}" -eq 0 ]
+            then
+                title=${line%%<*}
+                title=${title//\\t/ }
+                title=$(printf %b "$title")
+                if [ "${title:0:4}" == "經典影院" ] 
                 then
-                    title=${line%%<\/span>*}
-                    [ -z "$replace" ] && replace="${title:4:1}"
-                    title=${title//$replace/ }
-                    if [ "${title:0:4}" == "經典影院" ] 
-                    then
-                        title=${title:5}
-                    fi
-                    sys_time=$(date -d "$today $time" +%s)
-                    [ -n "$schedule" ] && schedule="$schedule,"
-                    schedule=$schedule'{
-                        "title":"'"$title"'",
-                        "time":"'"$time"'",
-                        "sys_time":"'"$sys_time"'"
-                    }'
-                else
-                    flag=${time:0:1}
+                    title=${title:5}
                 fi
-                if [[ $line == *"<em>"* ]] 
-                then
-                    line=${line#*<em>}
-                    time=${line%%<\/em>*}
-                else
-                    break
-                fi
-            done
-            break
-        fi
-    done < <(curl -s -Lm 10 -H "User-Agent: $user_agent" "$YESTERDAY_SCHEDULE_LINK")
+                sys_time=$(date -d "$today $time" +%s)
+                [ -n "$schedule" ] && schedule="$schedule,"
+                schedule=$schedule'{
+                    "title":"'"$title"'",
+                    "time":"'"$time"'",
+                    "sys_time":"'"$sys_time"'"
+                }'
+            else
+                flag=${time:0:1}
+            fi
+            if [[ $line == *"<em>"* ]] 
+            then
+                line=${line#*<em>}
+                time=${line%%<*}
+            else
+                break
+            fi
+        done
+    fi
 
     flag=0
-    found=0
+    line=$(curl -s -Lm 10 -H "User-Agent: $user_agent" --data "d=$timestamp" "$SCHEDULE_LINK") || true
 
-    while IFS= read -r line
-    do
-        if [[ $line == *"program_list"* ]] 
-        then
-            found=1
-        elif [ "$found" -eq 1 ] && [[ $line == *"<li>"* ]] 
-        then
-            line=${line#*<em>}
-            time=${line%%<\/em>*}
-            while [ -n "$time" ] 
-            do
-                time=${time:0:5}
-                line=${line#*<span>}
-                if [ ! "$flag" -gt "${time:0:1}" ]
+    if [[ $line == *"<li>"* ]] 
+    then
+        line=${line#*<em>}
+        time=${line%%<*}
+        while [ -n "$time" ] 
+        do
+            time=${time:0:5}
+            line=${line#*<span>}
+            if [ ! "$flag" -gt "${time:0:1}" ]
+            then
+                flag=${time:0:1}
+                title=${line%%<*}
+                title=${title//\\t/ }
+                title=$(printf %b "$title")
+                if [ "${title:0:4}" == "經典影院" ] 
                 then
-                    flag=${time:0:1}
-                    title=${line%%<\/span>*}
-                    title=${title//$replace/ }
-                    if [ "${title:0:4}" == "經典影院" ] 
-                    then
-                        title=${title:5}
-                    fi
-                    sys_time=$(date -d "$today $time" +%s)
-                    [ -n "$schedule" ] && schedule="$schedule,"
-                    schedule=$schedule'{
-                        "title":"'"$title"'",
-                        "time":"'"$time"'",
-                        "sys_time":"'"$sys_time"'"
-                    }'
-                else
-                    break 2
+                    title=${title:5}
                 fi
-                line=${line#*<em>}
-                time=${line%%<\/em>*}
-            done
-            break
-        fi
-    done < <(curl -s -Lm 10 -H "User-Agent: $user_agent" "$TODAY_SCHEDULE_LINK")
+                sys_time=$(date -d "$today $time" +%s)
+                [ -n "$schedule" ] && schedule="$schedule,"
+                schedule=$schedule'{
+                    "title":"'"$title"'",
+                    "time":"'"$time"'",
+                    "sys_time":"'"$sys_time"'"
+                }'
+            else
+                break 2
+            fi
+            line=${line#*<em>}
+            time=${line%%<*}
+        done
+    fi
 
     if [ -n "$schedule" ] 
     then
-        if [ "$found" -eq 0 ] 
-        then
-            found=1
-            Println "$error $chnl_name [$chnl_id] 节目表不完整"
-        fi
         JQ replace "$SCHEDULE_JSON" "$chnl_id" "[$schedule]"
         Println "$info $chnl_name [$chnl_id] 节目表更新成功"
     else
@@ -13974,7 +13955,7 @@ Schedule()
         "icable")
             ScheduleIcable
         ;;
-        "hbozw")
+        "hbo"|"hbozw")
             ScheduleHbozw
         ;;
         "hbous")
@@ -18649,6 +18630,7 @@ ViewXtreamCodesChnls()
         timezone=$(UrlencodeUpper "Europe/Amsterdam")
         GetDefault
         cookies="mac=$mac; stb_lang=en; timezone=$timezone"
+
         if [ -n "${d_xc_proxy:-}" ] 
         then
             echo
@@ -18667,6 +18649,7 @@ ViewXtreamCodesChnls()
             xc_host_header=()
             use_proxy_yn="否"
         fi
+
         token_url="$server/portal.php?type=stb&action=handshake&JsHttpRequest=1-xml"
         profile_url="$server/portal.php?type=stb&action=get_profile&JsHttpRequest=1-xml"
         genres_url="$server/portal.php?type=itv&action=get_genres&JsHttpRequest=1-xml"
@@ -18680,7 +18663,7 @@ ViewXtreamCodesChnls()
                 | $JQ_FILE -r '.js.token') || true
             if [ -z "$token" ] 
             then
-                Println "$error 无法连接 $domain, 请重试!\n" && exit 1
+                Println "$error $domain $mac_address 错误, 请重试!\n" && exit 1
             fi
             access_token=$(curl -s -Lm 10 \
                 -H "User-Agent: $user_agent" \
@@ -18690,7 +18673,7 @@ ViewXtreamCodesChnls()
                 | $JQ_FILE -r '.js.token') || true
             if [ -z "$access_token" ] 
             then
-                Println "$error 无法连接 $domain, 请重试!\n" && exit 1
+                Println "$error $mac_address access_token 错误, 请重试!\n" && exit 1
             fi
             headers="Authorization: Bearer $access_token\r\n"
             printf -v headers_command '%b' "$headers"
@@ -18701,7 +18684,7 @@ ViewXtreamCodesChnls()
                 --cookie "$cookies" "$profile_url") || true
             if [ -z "$profile" ] 
             then
-                Println "$error 无法连接 $domain, 请重试!\n" && exit 1
+                Println "$error $mac_address profile 错误, 请重试!\n" && exit 1
             fi
 
             if [[ $($JQ_FILE -r '.js.id' <<< "$profile") == null ]] 
@@ -19038,7 +19021,7 @@ ViewXtreamCodesChnls()
                     break
                 done
             else
-                Println "$error 找不到分类!\n" && exit 1
+                Println "$error $mac_address 错误, 找不到分类!\n" && exit 1
             fi
             break
         done
@@ -19104,7 +19087,7 @@ AddXtreamCodesMac()
         then
             if [ "$add_mac_success" -eq 0 ] 
             then
-                Println "$error 无法连接 $domain, 请重试!\n" && exit 1
+                Println "$error $domain $mac_address 错误, 请重试!\n" && exit 1
             else
                 Println "$error $mac_address 遇到错误, 请重试!"
                 continue
@@ -19120,7 +19103,7 @@ AddXtreamCodesMac()
         then
             if [ "$add_mac_success" -eq 0 ] 
             then
-                Println "$error 无法连接 $domain, 请重试!\n" && exit 1
+                Println "$error $mac_address access_token 错误, 请重试!\n" && exit 1
             else
                 Println "$error $mac_address 遇到错误, 请重试!"
                 continue
@@ -19135,7 +19118,7 @@ AddXtreamCodesMac()
         then
             if [ "$add_mac_success" -eq 0 ] 
             then
-                Println "$error 无法连接 $domain, 请重试!\n" && exit 1
+                Println "$error $mac_address profile 错误, 请重试!\n" && exit 1
             else
                 Println "$error $mac_address 遇到错误, 请重试!"
                 continue
@@ -19367,6 +19350,7 @@ InstallOpenresty()
 InstallNginx()
 {
     CheckRelease "检查依赖, 耗时可能会很长"
+    InstallJQ >/dev/null
     Progress &
     progress_pid=$!
     trap '
@@ -33178,6 +33162,8 @@ elif [ "${0##*/}" == "or" ] || [ "${0##*/}" == "or.sh" ]
 then
     CheckShFile
 
+    [ ! -d "$IPTV_ROOT" ] && JQ_FILE="/usr/local/bin/jq"
+
     nginx_prefix="/usr/local/openresty/nginx"
     nginx_name="openresty"
     nginx_ctl="or"
@@ -33267,6 +33253,7 @@ then
             NginxLogRotate
         ;;
         14)
+            [ ! -d "$IPTV_ROOT" ] && Println "$error 请先输入 tv 安装 !\n" && exit 1
             if [[ ! -x $(command -v node) ]] || [[ ! -x $(command -v npm) ]] 
             then
                 InstallNodejs
@@ -33294,12 +33281,14 @@ elif [ "${0##*/}" == "nx" ] || [ "${0##*/}" == "nx.sh" ]
 then
     CheckShFile
 
+    [ ! -d "$IPTV_ROOT" ] && JQ_FILE="/usr/local/bin/jq"
+
     nginx_prefix="/usr/local/nginx"
     nginx_name="nginx"
     nginx_ctl="nx"
     NGINX_FILE="$nginx_prefix/sbin/nginx"
 
-    Println "  Nginx 管理面板 ${normal}${red}[v$sh_ver]${normal}
+    Println "  nginx 管理面板 ${normal}${red}[v$sh_ver]${normal}
 
   ${green}1.${normal} 安装
   ${green}2.${normal} 卸载
@@ -33332,7 +33321,7 @@ then
         1) 
             if [ -d "$nginx_prefix" ] 
             then
-                Println "$error Nginx 已经存在 !\n" && exit 1
+                Println "$error nginx 已经存在 !\n" && exit 1
             fi
 
             echo
@@ -33345,7 +33334,7 @@ then
             fi
 
             InstallNginx
-            Println "$info Nginx 安装完成\n"
+            Println "$info nginx 安装完成\n"
         ;;
         2) 
             UninstallNginx
